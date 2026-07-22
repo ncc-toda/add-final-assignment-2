@@ -1,16 +1,48 @@
 //! アプリケーション共通のエラー型。
-//!
-//! 具体的なvariantは、それを必要とする機能(設定読み込み・API通信・地名解決など)の
-//! 実装時にTDDで追加していく。現時点ではDisplay/Error実装の雛形のみを用意する。
 
 use std::fmt;
 
 #[derive(Debug)]
-pub enum AppError {}
+pub enum AppError {
+    /// ファイルI/Oエラー(設定・キャッシュの読み書き失敗など)
+    Io(String),
+    /// 設定ファイル(TOML)のパース・シリアライズ失敗
+    ConfigParse(String),
+    /// キャッシュデータのパース・シリアライズ失敗
+    CacheParse(String),
+    /// ネットワークエラー(API接続失敗など)
+    Network(String),
+    /// JMA APIレスポンスの構造が想定と異なる
+    ApiFormat(String),
+    /// 地名が見つからない(類似地名のサジェスト付き)
+    LocationNotFound {
+        input: String,
+        suggestions: Vec<String>,
+    },
+}
 
 impl fmt::Display for AppError {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {}
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppError::Io(msg) => write!(f, "ファイル入出力エラー: {msg}"),
+            AppError::ConfigParse(msg) => write!(f, "設定ファイルの解析に失敗しました: {msg}"),
+            AppError::CacheParse(msg) => write!(f, "キャッシュデータの解析に失敗しました: {msg}"),
+            AppError::Network(msg) => write!(f, "ネットワークエラー: {msg}"),
+            AppError::ApiFormat(msg) => {
+                write!(f, "APIレスポンスの形式が想定と異なります: {msg}")
+            }
+            AppError::LocationNotFound { input, suggestions } => {
+                if suggestions.is_empty() {
+                    write!(f, "地名「{input}」が見つかりません")
+                } else {
+                    write!(
+                        f,
+                        "地名「{input}」が見つかりません。もしかして: {}",
+                        suggestions.join(", ")
+                    )
+                }
+            }
+        }
     }
 }
 
