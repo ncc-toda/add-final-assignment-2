@@ -57,5 +57,5 @@ fn run() -> Result<(), AppError> {
     let client = JmaClient::new(Cache::new(cache_dir, CACHE_TTL));
     let report = client.fetch_weather(&loc.area_code)?;
 
-    tui::run(&loc.name, &report, &theme, layout)
+    tui::run(&loc.name, &report, &theme, layout, &config.animation)
 }

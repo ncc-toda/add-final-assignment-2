@@ -6,6 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs, Wrap};
 
+use crate::animation::{ParticleColor, ParticleField};
 use crate::jma_client::WarningKind;
 
 use super::app::{AppState, Tab};
@@ -13,20 +14,24 @@ use super::format::{DayPane, UiData};
 use super::layout::LayoutPreset;
 use super::theme::Theme;
 
-/// 1フレーム分の描画。
+/// 1フレーム分の描画。`field` が `Some` なら背景アニメーションを描く。
 pub fn draw(
     frame: &mut Frame,
     state: &AppState,
     data: &UiData,
     theme: &Theme,
     layout: LayoutPreset,
+    field: Option<&ParticleField>,
 ) {
-    // 背景(Task 7でアニメーション描画に差し替える。現状は単色プレースホルダ)
+    // 背景: 単色で塗った上にパーティクルを重ね、さらに情報パネルを重ねる
     let screen = frame.area();
     frame.render_widget(
         Block::default().style(Style::default().bg(theme.screen_bg)),
         screen,
     );
+    if let Some(field) = field {
+        draw_particles(frame, screen, field, theme);
+    }
 
     let panel = layout.panel_area(screen);
     frame.render_widget(Clear, panel);
@@ -79,6 +84,36 @@ pub fn draw(
         Style::default().fg(theme.muted),
     ));
     frame.render_widget(Paragraph::new(hint).centered(), rows[4]);
+}
+
+/// 背景パーティクルの描画。色分類はテーマ非依存の固定配色。
+fn draw_particles(frame: &mut Frame, screen: Rect, field: &ParticleField, theme: &Theme) {
+    let buf = frame.buffer_mut();
+    for (x, y, glyph, color) in field.glyphs() {
+        if x >= screen.width || y >= screen.height {
+            continue;
+        }
+        let style = Style::default()
+            .fg(particle_color(color))
+            .bg(theme.screen_bg);
+        let style = if color == ParticleColor::Lightning {
+            style.add_modifier(Modifier::BOLD)
+        } else {
+            style
+        };
+        buf.set_string(screen.x + x, screen.y + y, glyph, style);
+    }
+}
+
+fn particle_color(color: ParticleColor) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    match color {
+        ParticleColor::Rain => Color::Rgb(90, 140, 240),
+        ParticleColor::Snow => Color::Rgb(200, 210, 230),
+        ParticleColor::Sun => Color::Rgb(250, 200, 60),
+        ParticleColor::Cloud => Color::Rgb(130, 135, 145),
+        ParticleColor::Lightning => Color::Rgb(255, 240, 90),
+    }
 }
 
 /// 警報・注意報の帯。種別で配色を変える(特別警報/警報は帯、注意報は文字色のみ)。
@@ -258,10 +293,21 @@ mod tests {
     }
 
     fn render(state: &AppState, data: &UiData, layout: LayoutPreset, w: u16, h: u16) -> String {
+        render_with_field(state, data, layout, w, h, None)
+    }
+
+    fn render_with_field(
+        state: &AppState,
+        data: &UiData,
+        layout: LayoutPreset,
+        w: u16,
+        h: u16,
+        field: Option<&ParticleField>,
+    ) -> String {
         let theme = Theme::from_name("dark").unwrap();
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal
-            .draw(|frame| draw(frame, state, data, &theme, layout))
+            .draw(|frame| draw(frame, state, data, &theme, layout, field))
             .unwrap();
         format!("{:?}", terminal.backend().buffer())
     }
@@ -318,6 +364,37 @@ mod tests {
         for layout in [LayoutPreset::Fullscreen, LayoutPreset::Dashboard] {
             for (w, h) in [(100, 40), (20, 6), (5, 2)] {
                 render(&AppState::new(), &data, layout, w, h);
+            }
+        }
+    }
+
+    #[test]
+    fn 背景アニメーション付きでも全カテゴリで描画がパニックしない() {
+        use crate::config::AnimationConfig;
+
+        let data = ui_data_fixture();
+        for category in [
+            WeatherCategory::Sunny,
+            WeatherCategory::Cloudy,
+            WeatherCategory::Rain,
+            WeatherCategory::Snow,
+            WeatherCategory::Thunder,
+        ] {
+            let mut field =
+                ParticleField::new(42, category, Some(70), &AnimationConfig::default(), 60, 20);
+            for _ in 0..100 {
+                field.tick();
+            }
+            // 端末サイズがフィールドより小さいケースも(クリップされて落ちないこと)
+            for (w, h) in [(60, 20), (30, 10)] {
+                render_with_field(
+                    &AppState::new(),
+                    &data,
+                    LayoutPreset::Fullscreen,
+                    w,
+                    h,
+                    Some(&field),
+                );
             }
         }
     }
