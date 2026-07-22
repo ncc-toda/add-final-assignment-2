@@ -86,7 +86,8 @@ impl Cache {
             saved_at_unix,
             data,
         };
-        let json = serde_json::to_string(&entry).map_err(|e| AppError::CacheParse(e.to_string()))?;
+        let json =
+            serde_json::to_string(&entry).map_err(|e| AppError::CacheParse(e.to_string()))?;
         fs::write(self.path_for(key), json).map_err(|e| AppError::Io(e.to_string()))
     }
 
@@ -183,7 +184,9 @@ mod tests {
     #[test]
     fn 保存したデータを期限内に読み出せる() {
         let (cache, dir) = make_cache("fresh");
-        cache.store_at("forecast_130000", &sample(), 1000).expect("保存失敗");
+        cache
+            .store_at("forecast_130000", &sample(), 1000)
+            .expect("保存失敗");
         let loaded: Option<SampleData> = cache.load_fresh("forecast_130000", 1000 + 60);
         assert_eq!(loaded, Some(sample()));
         fs::remove_dir_all(&dir).ok();
@@ -246,7 +249,9 @@ mod tests {
     #[test]
     fn ファイル名に使えない文字を含むキーでも保存読込できる() {
         let (cache, dir) = make_cache("sanitize");
-        cache.store_at("東京/予報:今日", &sample(), 1000).expect("保存失敗");
+        cache
+            .store_at("東京/予報:今日", &sample(), 1000)
+            .expect("保存失敗");
         let loaded: Option<SampleData> = cache.load_fresh("東京/予報:今日", 1000);
         assert_eq!(loaded, Some(sample()));
         fs::remove_dir_all(&dir).ok();
