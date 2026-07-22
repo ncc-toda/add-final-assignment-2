@@ -8,6 +8,8 @@ pub enum AppError {
     Io(String),
     /// 設定ファイル(TOML)のパース・シリアライズ失敗
     ConfigParse(String),
+    /// 設定値が不正(未知のレイアウト名・テーマ名など)
+    ConfigInvalid(String),
     /// キャッシュデータのパース・シリアライズ失敗
     CacheParse(String),
     /// ネットワークエラー(API接続失敗など)
@@ -33,6 +35,7 @@ impl fmt::Display for AppError {
         match self {
             AppError::Io(msg) => write!(f, "ファイル入出力エラー: {msg}"),
             AppError::ConfigParse(msg) => write!(f, "設定ファイルの解析に失敗しました: {msg}"),
+            AppError::ConfigInvalid(msg) => write!(f, "設定値が不正です: {msg}"),
             AppError::CacheParse(msg) => write!(f, "キャッシュデータの解析に失敗しました: {msg}"),
             AppError::Network(msg) => write!(f, "ネットワークエラー: {msg}"),
             AppError::ApiFormat(msg) => {

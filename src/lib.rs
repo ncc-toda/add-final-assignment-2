@@ -10,3 +10,4 @@ pub mod error;
 pub mod jma_client;
 pub mod location;
 pub mod tui;
+pub mod weather_code;
