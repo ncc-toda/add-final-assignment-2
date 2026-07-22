@@ -3,6 +3,7 @@
 //! 描画内容は `view`、状態遷移は `app`、表示用データ整形は `format` を参照。
 
 pub mod app;
+pub mod demo;
 pub mod format;
 pub mod layout;
 pub mod theme;
@@ -17,7 +18,7 @@ use crate::animation::ParticleField;
 use crate::config::AnimationConfig;
 use crate::error::AppError;
 use crate::jma_client::WeatherReport;
-use crate::weather_code::categorize;
+use crate::weather_code::{WeatherCategory, categorize};
 
 use app::AppState;
 use layout::LayoutPreset;
@@ -85,6 +86,91 @@ fn date_part(iso: &str) -> &str {
     iso.get(..10).unwrap_or(iso)
 }
 
+/// `--demo`: ダミーデータでTUIを起動し、`n`/`Space` で5パターンを順に切り替える。
+/// アニメーションの確認が目的のため `enabled = false` でも背景を描画する。
+pub fn run_demo(
+    start: WeatherCategory,
+    theme: &Theme,
+    layout: LayoutPreset,
+    animation: &AnimationConfig,
+) -> Result<(), AppError> {
+    let mut terminal = ratatui::init();
+    let result = demo_loop(&mut terminal, start, theme, layout, animation);
+    ratatui::restore();
+    result
+}
+
+fn demo_loop(
+    terminal: &mut DefaultTerminal,
+    start: WeatherCategory,
+    theme: &Theme,
+    layout: LayoutPreset,
+    animation: &AnimationConfig,
+) -> Result<(), AppError> {
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
+        .unwrap_or(0x5EED);
+    let size = terminal.size().unwrap_or(ratatui::layout::Size {
+        width: 80,
+        height: 24,
+    });
+
+    let mut state = AppState::new();
+    let mut category = start;
+    let mut data = demo::demo_ui_data(category);
+    let make_field = |category: WeatherCategory, seed: u64| {
+        ParticleField::new(
+            seed,
+            category,
+            demo::demo_max_pop(category),
+            animation,
+            size.width,
+            size.height,
+        )
+    };
+    let mut field = make_field(category, seed);
+
+    loop {
+        if let Ok(size) = terminal.size() {
+            field.resize(size.width, size.height);
+        }
+        field.tick();
+
+        terminal
+            .draw(|frame| {
+                view::draw(
+                    frame,
+                    &state,
+                    &data,
+                    theme,
+                    layout,
+                    Some(&field),
+                    view::HINT_DEMO,
+                )
+            })
+            .map_err(|e| AppError::Io(format!("TUI描画に失敗しました: {e}")))?;
+
+        if event::poll(TICK_INTERVAL).map_err(|e| AppError::Io(e.to_string()))?
+            && let Event::Key(key) = event::read().map_err(|e| AppError::Io(e.to_string()))?
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                crossterm::event::KeyCode::Char('n' | 'N' | ' ') => {
+                    category = category.next();
+                    data = demo::demo_ui_data(category);
+                    field = make_field(category, seed ^ category as u64);
+                }
+                other => state.on_key(other),
+            }
+        }
+
+        if state.should_quit {
+            return Ok(());
+        }
+    }
+}
+
 fn event_loop(
     terminal: &mut DefaultTerminal,
     state: &mut AppState,
@@ -102,7 +188,17 @@ fn event_loop(
         }
 
         terminal
-            .draw(|frame| view::draw(frame, state, data, theme, layout, field.as_ref()))
+            .draw(|frame| {
+                view::draw(
+                    frame,
+                    state,
+                    data,
+                    theme,
+                    layout,
+                    field.as_ref(),
+                    view::HINT_NORMAL,
+                )
+            })
             .map_err(|e| AppError::Io(format!("TUI描画に失敗しました: {e}")))?;
 
         if event::poll(TICK_INTERVAL).map_err(|e| AppError::Io(e.to_string()))?

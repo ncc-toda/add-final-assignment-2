@@ -14,6 +14,11 @@ use super::format::{DayPane, UiData};
 use super::layout::LayoutPreset;
 use super::theme::Theme;
 
+/// 通常表示のフッターヒント。
+pub const HINT_NORMAL: &str = "Tab/←→: タブ切替  1/2: 直接選択  q: 終了";
+/// デモ表示のフッターヒント。
+pub const HINT_DEMO: &str = "n/Space: パターン切替  Tab/←→: タブ切替  q: 終了";
+
 /// 1フレーム分の描画。`field` が `Some` なら背景アニメーションを描く。
 pub fn draw(
     frame: &mut Frame,
@@ -22,6 +27,7 @@ pub fn draw(
     theme: &Theme,
     layout: LayoutPreset,
     field: Option<&ParticleField>,
+    hint: &str,
 ) {
     // 背景: 単色で塗った上にパーティクルを重ね、さらに情報パネルを重ねる
     let screen = frame.area();
@@ -79,11 +85,8 @@ pub fn draw(
         Tab::Weekly => draw_weekly(frame, rows[3], data, theme),
     }
 
-    let hint = Line::from(Span::styled(
-        "Tab/←→: タブ切替  1/2: 直接選択  q: 終了",
-        Style::default().fg(theme.muted),
-    ));
-    frame.render_widget(Paragraph::new(hint).centered(), rows[4]);
+    let hint_line = Line::from(Span::styled(hint, Style::default().fg(theme.muted)));
+    frame.render_widget(Paragraph::new(hint_line).centered(), rows[4]);
 }
 
 /// 背景パーティクルの描画。色分類はテーマ非依存の固定配色。
@@ -307,7 +310,7 @@ mod tests {
         let theme = Theme::from_name("dark").unwrap();
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal
-            .draw(|frame| draw(frame, state, data, &theme, layout, field))
+            .draw(|frame| draw(frame, state, data, &theme, layout, field, HINT_NORMAL))
             .unwrap();
         format!("{:?}", terminal.backend().buffer())
     }

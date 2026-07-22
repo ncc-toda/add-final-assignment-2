@@ -13,6 +13,15 @@ pub enum WeatherCategory {
 }
 
 impl WeatherCategory {
+    /// 全カテゴリ(デモ表示の切り替え順)。
+    pub const ALL: [WeatherCategory; 5] = [
+        WeatherCategory::Sunny,
+        WeatherCategory::Cloudy,
+        WeatherCategory::Rain,
+        WeatherCategory::Snow,
+        WeatherCategory::Thunder,
+    ];
+
     /// カテゴリに対応する絵文字アイコン。
     pub fn emoji(self) -> &'static str {
         match self {
@@ -22,6 +31,35 @@ impl WeatherCategory {
             WeatherCategory::Snow => "❄",
             WeatherCategory::Thunder => "⚡",
         }
+    }
+
+    /// 日本語名(デモのパターン指定・表示に使う)。
+    pub fn jp_name(self) -> &'static str {
+        match self {
+            WeatherCategory::Sunny => "晴れ",
+            WeatherCategory::Cloudy => "曇り",
+            WeatherCategory::Rain => "雨",
+            WeatherCategory::Snow => "雪",
+            WeatherCategory::Thunder => "雷",
+        }
+    }
+
+    /// 日本語名からカテゴリを解決する(「晴」「曇」の短縮形も許容)。
+    pub fn from_jp_name(name: &str) -> Option<Self> {
+        match name {
+            "晴れ" | "晴" => Some(WeatherCategory::Sunny),
+            "曇り" | "曇" => Some(WeatherCategory::Cloudy),
+            "雨" => Some(WeatherCategory::Rain),
+            "雪" => Some(WeatherCategory::Snow),
+            "雷" => Some(WeatherCategory::Thunder),
+            _ => None,
+        }
+    }
+
+    /// 次のカテゴリ(末尾は先頭に戻る)。デモの切り替え順。
+    pub fn next(self) -> Self {
+        let idx = Self::ALL.iter().position(|c| *c == self).unwrap_or(0);
+        Self::ALL[(idx + 1) % Self::ALL.len()]
     }
 }
 
@@ -74,6 +112,34 @@ mod tests {
         assert_eq!(categorize("999"), WeatherCategory::Cloudy);
         assert_eq!(categorize(""), WeatherCategory::Cloudy);
         assert_eq!(categorize("abc"), WeatherCategory::Cloudy);
+    }
+
+    #[test]
+    fn 日本語名とカテゴリを相互変換できる() {
+        for cat in WeatherCategory::ALL {
+            assert_eq!(WeatherCategory::from_jp_name(cat.jp_name()), Some(cat));
+        }
+        assert_eq!(
+            WeatherCategory::from_jp_name("晴"),
+            Some(WeatherCategory::Sunny)
+        );
+        assert_eq!(
+            WeatherCategory::from_jp_name("曇"),
+            Some(WeatherCategory::Cloudy)
+        );
+        assert_eq!(WeatherCategory::from_jp_name("台風"), None);
+    }
+
+    #[test]
+    fn nextは全カテゴリを一巡して先頭に戻る() {
+        let mut cat = WeatherCategory::Sunny;
+        let mut seen = vec![cat];
+        for _ in 0..4 {
+            cat = cat.next();
+            seen.push(cat);
+        }
+        assert_eq!(seen, WeatherCategory::ALL.to_vec());
+        assert_eq!(cat.next(), WeatherCategory::Sunny);
     }
 
     #[test]

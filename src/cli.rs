@@ -26,6 +26,25 @@ pub struct Cli {
     /// デフォルト地点を設定して終了
     #[arg(long, value_name = "地名", conflicts_with = "location")]
     pub set: Option<String>,
+
+    /// 背景アニメーションのデモ表示(パターン: 晴れ/曇り/雨/雪/雷。省略時は晴れから開始)
+    #[arg(
+        long,
+        value_name = "パターン",
+        num_args = 0..=1,
+        default_missing_value = "晴れ",
+        conflicts_with_all = ["location", "set"]
+    )]
+    pub demo: Option<String>,
+}
+
+/// `--demo` のパターン名を解決する。未知の名前は有効値を案内してエラー。
+pub fn parse_demo_pattern(name: &str) -> Result<crate::weather_code::WeatherCategory, AppError> {
+    crate::weather_code::WeatherCategory::from_jp_name(name).ok_or_else(|| {
+        AppError::ConfigInvalid(format!(
+            "未知のデモパターン「{name}」。有効値: 晴れ, 曇り, 雨, 雪, 雷"
+        ))
+    })
 }
 
 /// 表示対象の地点を解決する。
@@ -117,6 +136,41 @@ mod tests {
     fn set単独で値なしはエラーになる() {
         let result = Cli::try_parse_from(["weather", "--set"]);
         assert!(result.is_err());
+    }
+
+    // --- --demo ---
+
+    #[test]
+    fn demoフラグは値なしなら晴れになる() {
+        let cli = Cli::try_parse_from(["weather", "--demo"]).expect("パース失敗");
+        assert_eq!(cli.demo.as_deref(), Some("晴れ"));
+    }
+
+    #[test]
+    fn demoフラグはパターン名を受け取れる() {
+        let cli = Cli::try_parse_from(["weather", "--demo", "雪"]).expect("パース失敗");
+        assert_eq!(cli.demo.as_deref(), Some("雪"));
+    }
+
+    #[test]
+    fn demoと地名やsetの同時指定はエラーになる() {
+        assert!(Cli::try_parse_from(["weather", "東京", "--demo"]).is_err());
+        assert!(Cli::try_parse_from(["weather", "--set", "東京", "--demo"]).is_err());
+    }
+
+    #[test]
+    fn 有効なデモパターン名は全て解決できる() {
+        use crate::weather_code::WeatherCategory;
+        for cat in WeatherCategory::ALL {
+            assert_eq!(parse_demo_pattern(cat.jp_name()).unwrap(), cat);
+        }
+    }
+
+    #[test]
+    fn 未知のデモパターン名はエラーになり有効値を案内する() {
+        let msg = parse_demo_pattern("台風").unwrap_err().to_string();
+        assert!(msg.contains("「台風」"), "msg: {msg}");
+        assert!(msg.contains("晴れ, 曇り, 雨, 雪, 雷"), "msg: {msg}");
     }
 
     // --- resolve_target ---

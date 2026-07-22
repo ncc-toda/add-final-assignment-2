@@ -45,6 +45,15 @@ fn run() -> Result<(), AppError> {
         return Ok(());
     }
 
+    // --demo: ネットワークを使わずダミーデータでアニメーションを確認する
+    if let Some(pattern) = args.demo.as_deref() {
+        let category = cli::parse_demo_pattern(pattern)?;
+        let config = Config::load_or_default(&config_path)?;
+        let theme = Theme::from_name(&config.theme)?;
+        let layout = LayoutPreset::from_name(&config.layout)?;
+        return tui::run_demo(category, &theme, layout, &config.animation);
+    }
+
     let config = Config::load_or_default(&config_path)?;
     let loc = cli::resolve_target(args.location.as_deref(), &config)?;
 
