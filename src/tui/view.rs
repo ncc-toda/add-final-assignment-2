@@ -29,14 +29,21 @@ pub fn draw(
     field: Option<&ParticleField>,
     hint: &str,
 ) {
-    // 背景: 単色で塗った上にパーティクルを重ね、さらに情報パネルを重ねる
+    // 背景: 単色で塗った上にパーティクルを重ね、さらに情報パネルを重ねる。
+    // 落雷の瞬間は背景を一段明るくして画面フラッシュを演出する。
     let screen = frame.area();
+    let flash = field.is_some_and(ParticleField::flash_active);
+    let screen_bg = if flash {
+        flash_bg(theme.screen_bg)
+    } else {
+        theme.screen_bg
+    };
     frame.render_widget(
-        Block::default().style(Style::default().bg(theme.screen_bg)),
+        Block::default().style(Style::default().bg(screen_bg)),
         screen,
     );
     if let Some(field) = field {
-        draw_particles(frame, screen, field, theme);
+        draw_particles(frame, screen, field, screen_bg);
     }
 
     let panel = layout.panel_area(screen);
@@ -44,13 +51,19 @@ pub fn draw(
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.border))
-        .title(format!(" {} の天気 ", data.location_name))
-        .title_style(
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )
+        .border_type(theme.border_type)
+        .border_style(border_style(theme))
+        .title(Line::from(vec![
+            Span::styled("◈ ", Style::default().fg(theme.border)),
+            Span::styled(
+                format!("{} の天気", data.location_name),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" ◈", Style::default().fg(theme.border)),
+        ]))
+        .title_alignment(ratatui::layout::Alignment::Center)
         .style(Style::default().bg(theme.panel_bg).fg(theme.panel_fg));
     let inner = block.inner(panel);
     frame.render_widget(block, panel);
@@ -89,17 +102,27 @@ pub fn draw(
     frame.render_widget(Paragraph::new(hint_line).centered(), rows[4]);
 }
 
-/// 背景パーティクルの描画。色分類はテーマ非依存の固定配色。
-fn draw_particles(frame: &mut Frame, screen: Rect, field: &ParticleField, theme: &Theme) {
+/// 枠線スタイル。`glow` テーマでは太字にしてネオンの発光感を出す。
+fn border_style(theme: &Theme) -> Style {
+    let base = Style::default().fg(theme.border);
+    if theme.glow {
+        base.add_modifier(Modifier::BOLD)
+    } else {
+        base
+    }
+}
+
+/// 背景パーティクルの描画。色分類はテーマ非依存の固定配色。`bg` は
+/// 落雷フラッシュを反映した実効背景色。
+fn draw_particles(frame: &mut Frame, screen: Rect, field: &ParticleField, bg: ratatui::style::Color) {
     let buf = frame.buffer_mut();
     for (x, y, glyph, color) in field.glyphs() {
         if x >= screen.width || y >= screen.height {
             continue;
         }
-        let style = Style::default()
-            .fg(particle_color(color))
-            .bg(theme.screen_bg);
-        let style = if color == ParticleColor::Lightning {
+        let style = Style::default().fg(particle_color(color)).bg(bg);
+        // 稲妻ときらめきは太字で強く光らせる
+        let style = if matches!(color, ParticleColor::Lightning | ParticleColor::Spark) {
             style.add_modifier(Modifier::BOLD)
         } else {
             style
@@ -111,11 +134,24 @@ fn draw_particles(frame: &mut Frame, screen: Rect, field: &ParticleField, theme:
 fn particle_color(color: ParticleColor) -> ratatui::style::Color {
     use ratatui::style::Color;
     match color {
-        ParticleColor::Rain => Color::Rgb(90, 140, 240),
-        ParticleColor::Snow => Color::Rgb(200, 210, 230),
-        ParticleColor::Sun => Color::Rgb(250, 200, 60),
-        ParticleColor::Cloud => Color::Rgb(130, 135, 145),
-        ParticleColor::Lightning => Color::Rgb(255, 240, 90),
+        ParticleColor::Rain => Color::Rgb(90, 170, 255),
+        ParticleColor::Snow => Color::Rgb(220, 235, 255),
+        ParticleColor::Sun => Color::Rgb(255, 205, 60),
+        ParticleColor::Spark => Color::Rgb(255, 255, 235),
+        ParticleColor::Cloud => Color::Rgb(140, 150, 170),
+        ParticleColor::Lightning => Color::Rgb(255, 250, 140),
+    }
+}
+
+/// 落雷フラッシュ時の背景色。元の背景を白側へ持ち上げて発光感を出す。
+fn flash_bg(base: ratatui::style::Color) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    match base {
+        Color::Rgb(r, g, b) => {
+            let lift = |c: u8| c.saturating_add(48).max(56);
+            Color::Rgb(lift(r), lift(g), lift(b).saturating_add(20))
+        }
+        other => other,
     }
 }
 
@@ -143,12 +179,15 @@ fn draw_tabs(frame: &mut Frame, area: Rect, tab: Tab, theme: &Theme) {
         Tab::TodayTomorrow => 0,
         Tab::Weekly => 1,
     };
-    let tabs = Tabs::new(vec!["今日・明日", "週間予報"])
+    let tabs = Tabs::new(vec![" 今日・明日 ", " 週間予報 "])
         .select(selected)
+        .divider(Span::styled("┃", Style::default().fg(theme.border)))
         .style(Style::default().fg(theme.muted))
+        // 選択タブは背景をアクセント色で塗り、ネオンの点灯チップ風にする
         .highlight_style(
             Style::default()
-                .fg(theme.accent)
+                .bg(theme.accent)
+                .fg(theme.panel_bg)
                 .add_modifier(Modifier::BOLD),
         );
     frame.render_widget(tabs, area);
@@ -175,8 +214,14 @@ fn draw_today_tomorrow(frame: &mut Frame, area: Rect, data: &UiData, theme: &The
 fn draw_day_pane(frame: &mut Frame, area: Rect, pane: &DayPane, theme: &Theme) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.border))
-        .title(format!(" {} ", pane.title));
+        .border_type(theme.border_type)
+        .border_style(border_style(theme))
+        .title(Span::styled(
+            format!(" {} ", pane.title),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -307,7 +352,7 @@ mod tests {
         h: u16,
         field: Option<&ParticleField>,
     ) -> String {
-        let theme = Theme::from_name("dark").unwrap();
+        let theme = Theme::from_name("neon").unwrap();
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal
             .draw(|frame| draw(frame, state, data, &theme, layout, field, HINT_NORMAL))

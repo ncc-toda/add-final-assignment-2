@@ -12,10 +12,10 @@ const DENSITY_MAX: f64 = 3.0;
 /// `config.speed` の許容範囲。0だと完全静止するため下限を設ける。
 const SPEED_MIN: f64 = 0.1;
 const SPEED_MAX: f64 = 5.0;
-/// 稲妻の平均発生間隔(tick数。50ms/tickなので約2秒に1回)。
-const BOLT_INTERVAL_TICKS: u64 = 40;
+/// 稲妻の平均発生間隔(tick数。50ms/tickなので約1秒に1回)。
+const BOLT_INTERVAL_TICKS: u64 = 22;
 /// 稲妻が表示され続けるtick数。
-const BOLT_LIFETIME: u8 = 3;
+const BOLT_LIFETIME: u8 = 4;
 
 /// パーティクルの色分類。実際の色はテーマ非依存でview側が固定的に割り当てる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +23,8 @@ pub enum ParticleColor {
     Rain,
     Snow,
     Sun,
+    /// 晴れのきらめきのうち、白く強く光る点(金色の `Sun` と混在させてシマー感を出す)
+    Spark,
     Cloud,
     Lightning,
 }
@@ -71,10 +73,19 @@ impl Xorshift64 {
 /// カテゴリごとの基本密度(セルあたりのパーティクル数)。
 fn base_rate(category: WeatherCategory) -> f64 {
     match category {
-        WeatherCategory::Rain | WeatherCategory::Thunder => 0.02,
-        WeatherCategory::Snow => 0.015,
-        WeatherCategory::Cloudy => 0.01,
-        WeatherCategory::Sunny => 0.005,
+        WeatherCategory::Rain | WeatherCategory::Thunder => 0.03,
+        WeatherCategory::Snow => 0.022,
+        WeatherCategory::Cloudy => 0.014,
+        WeatherCategory::Sunny => 0.01,
+    }
+}
+
+/// 稲妻セルの進行方向(dx)に応じた線分グリフ。
+fn bolt_glyph(dx: i64) -> &'static str {
+    match dx {
+        d if d < 0 => "╱",
+        d if d > 0 => "╲",
+        _ => "┃",
     }
 }
 
@@ -122,12 +133,12 @@ struct Particle {
     blink_period: u64,
 }
 
-/// 稲妻1本(縦方向のジグザグ列)。数tickだけ表示される。
+/// 稲妻1本。生成時にギザギザの経路(本体+枝)をセル列として確定させ、
+/// 数tickだけ表示する。各セルは座標と方向に応じたグリフを持つ。
 #[derive(Debug, Clone)]
 struct Bolt {
-    x: u16,
-    top: u16,
-    len: u16,
+    /// 稲妻を構成するセル(x, y, グリフ)の列。本体と枝を含む。
+    cells: Vec<(u16, u16, &'static str)>,
     remaining: u8,
 }
 
@@ -208,25 +219,39 @@ impl ParticleField {
         };
         let phase = self.rng.range_f64(0.0, std::f64::consts::TAU);
         match self.category {
-            WeatherCategory::Rain | WeatherCategory::Thunder => Particle {
-                x,
-                y,
-                vx: 0.0,
-                vy: self.rng.range_f64(0.4, 0.9),
-                glyph: "│",
-                color: ParticleColor::Rain,
-                phase,
-                blink_period: 0,
-            },
+            WeatherCategory::Rain | WeatherCategory::Thunder => {
+                // 風で右に流れる斜めの雨。落下速度に幅を持たせて奥行き感を出し、
+                // 速い(手前の)雨ほど太いグリフにする。
+                let vy = self.rng.range_f64(0.4, 1.2);
+                let glyph = if vy > 0.95 {
+                    "┃"
+                } else if vy > 0.65 {
+                    "╲"
+                } else {
+                    "│"
+                };
+                Particle {
+                    x,
+                    y,
+                    vx: self.rng.range_f64(0.12, 0.30),
+                    vy,
+                    glyph,
+                    color: ParticleColor::Rain,
+                    phase,
+                    blink_period: 0,
+                }
+            }
             WeatherCategory::Snow => Particle {
                 x,
                 y,
                 vx: 0.0,
-                vy: self.rng.range_f64(0.08, 0.25),
-                glyph: if self.rng.next_u64().is_multiple_of(2) {
-                    "*"
-                } else {
-                    "·"
+                vy: self.rng.range_f64(0.08, 0.28),
+                glyph: match self.rng.next_u64() % 5 {
+                    0 => "❄",
+                    1 => "❆",
+                    2 => "✻",
+                    3 => "*",
+                    _ => "·",
                 },
                 color: ParticleColor::Snow,
                 phase,
@@ -237,10 +262,13 @@ impl ParticleField {
                 y,
                 vx: self.rng.range_f64(0.03, 0.12),
                 vy: 0.0,
-                glyph: if self.rng.next_u64().is_multiple_of(3) {
-                    "●"
-                } else {
-                    "○"
+                // 濃淡のあるブロック文字で雲の塊のようなテクスチャにする
+                glyph: match self.rng.next_u64() % 5 {
+                    0 => "▓",
+                    1 => "▒",
+                    2 => "░",
+                    3 => "●",
+                    _ => "○",
                 },
                 color: ParticleColor::Cloud,
                 phase,
@@ -251,14 +279,23 @@ impl ParticleField {
                 y,
                 vx: 0.0,
                 vy: 0.0,
-                glyph: match self.rng.next_u64() % 3 {
+                glyph: match self.rng.next_u64() % 6 {
                     0 => "✦",
-                    1 => "+",
+                    1 => "✧",
+                    2 => "✶",
+                    3 => "⋆",
+                    4 => "+",
                     _ => "·",
                 },
-                color: ParticleColor::Sun,
+                // 一部を白く強く光らせ、金色と混ざってシマーする
+                color: if self.rng.next_u64().is_multiple_of(3) {
+                    ParticleColor::Spark
+                } else {
+                    ParticleColor::Sun
+                },
                 phase,
-                blink_period: 20 + (self.rng.next_u64() % 30),
+                // 明滅を速めて活発なきらめきにする
+                blink_period: 10 + (self.rng.next_u64() % 20),
             },
         }
     }
@@ -279,6 +316,10 @@ impl ParticleField {
                     p.x += (t * 0.15 + p.phase).sin() * 0.2 * speed;
                 }
                 ParticleColor::Cloud => {
+                    p.x += p.vx * speed;
+                }
+                ParticleColor::Rain => {
+                    // 風で斜めに流れる
                     p.x += p.vx * speed;
                 }
                 _ => {}
@@ -304,16 +345,64 @@ impl ParticleField {
             && self.height >= 4
             && self.rng.next_u64().is_multiple_of(BOLT_INTERVAL_TICKS)
         {
-            let x = (self.rng.next_u64() % u64::from(self.width.max(1))) as u16;
-            let max_len = (self.height / 2).max(3);
-            let len = 3 + (self.rng.next_u64() % u64::from(max_len - 2)) as u16;
-            self.bolts.push(Bolt {
-                x,
-                top: 0,
-                len,
-                remaining: BOLT_LIFETIME,
-            });
+            let bolt = self.build_bolt();
+            self.bolts.push(bolt);
         }
+    }
+
+    /// ギザギザに枝分かれする稲妻を1本生成する。上端付近から下へ、
+    /// 左右にジグザグしながら伸ばし、途中から短い枝を分岐させる。
+    fn build_bolt(&mut self) -> Bolt {
+        let w = i64::from(self.width.max(1));
+        let max_len = (self.height * 3 / 4).max(4);
+        let len = 4 + (self.rng.next_u64() % u64::from(max_len - 3)) as u16;
+        let mut cells = Vec::new();
+
+        let mut x = (self.rng.next_u64() % w as u64) as i64;
+        for y in 0..len {
+            // -1 / 0 / +1 に振れるが、まっすぐ進みやすくする
+            let dx = match self.rng.next_u64() % 4 {
+                0 => -1,
+                1 => 1,
+                _ => 0,
+            };
+            let glyph = bolt_glyph(dx);
+            let cx = x.clamp(0, w - 1);
+            cells.push((cx as u16, y, glyph));
+
+            // まれに横向きの枝を生やす(画面中ほど限定)
+            if y > 1 && y + 1 < len && self.rng.next_u64().is_multiple_of(5) {
+                let bdir: i64 = if self.rng.next_u64().is_multiple_of(2) {
+                    1
+                } else {
+                    -1
+                };
+                let blen = 2 + (self.rng.next_u64() % 3) as u16;
+                let mut bx = cx;
+                for k in 1..=blen {
+                    bx = (bx + bdir).clamp(0, w - 1);
+                    let by = y + k;
+                    if by >= len {
+                        break;
+                    }
+                    cells.push((bx as u16, by, bolt_glyph(bdir)));
+                }
+            }
+
+            x = (x + dx).clamp(0, w - 1);
+        }
+
+        Bolt {
+            cells,
+            remaining: BOLT_LIFETIME,
+        }
+    }
+
+    /// 落雷した直後の数tickかどうか(画面フラッシュ演出用)。
+    pub fn flash_active(&self) -> bool {
+        self.bolts
+            .iter()
+            .any(|b| b.remaining >= BOLT_LIFETIME - 1)
     }
 
     /// 現在表示すべきパーティクルの一覧(画面内のもののみ)。
@@ -334,10 +423,9 @@ impl ParticleField {
             }
         }
         for bolt in &self.bolts {
-            for dy in 0..bolt.len {
-                let y = bolt.top + dy;
-                if y < self.height && bolt.x < self.width {
-                    out.push((bolt.x, y, "メ", ParticleColor::Lightning));
+            for &(x, y, glyph) in &bolt.cells {
+                if x < self.width && y < self.height {
+                    out.push((x, y, glyph, ParticleColor::Lightning));
                 }
             }
         }
@@ -361,19 +449,19 @@ mod tests {
 
     #[test]
     fn 雨は降水確率係数込みで計算される() {
-        // 4000セル × 0.02 × (0.3 + 0.7×0.7) × 1.0 = 63.2 → 63
+        // 4000セル × 0.03 × (0.3 + 0.7×0.7) × 1.0 = 94.8 → 95
         assert_eq!(
             particle_count(100, 40, WeatherCategory::Rain, Some(70), 1.0),
-            63
+            95
         );
     }
 
     #[test]
     fn 降水確率不明なら係数は1になる() {
-        // 4000 × 0.02 × 1.0 × 1.0 = 80
+        // 4000 × 0.03 × 1.0 × 1.0 = 120
         assert_eq!(
             particle_count(100, 40, WeatherCategory::Rain, None, 1.0),
-            80
+            120
         );
     }
 
@@ -382,10 +470,10 @@ mod tests {
         let sunny_low = particle_count(100, 40, WeatherCategory::Sunny, Some(0), 1.0);
         let sunny_high = particle_count(100, 40, WeatherCategory::Sunny, Some(100), 1.0);
         assert_eq!(sunny_low, sunny_high);
-        assert_eq!(sunny_low, 20); // 4000 × 0.005
+        assert_eq!(sunny_low, 40); // 4000 × 0.01
 
         let cloudy = particle_count(100, 40, WeatherCategory::Cloudy, None, 1.0);
-        assert_eq!(cloudy, 40); // 4000 × 0.01
+        assert_eq!(cloudy, 56); // 4000 × 0.014
     }
 
     #[test]
@@ -426,10 +514,18 @@ mod tests {
     fn 雨パーティクルはtickで下に落ちる() {
         let mut field =
             ParticleField::new(42, WeatherCategory::Rain, None, &config(1.0, 1.0), 80, 24);
-        let before: f64 = field.particles.iter().map(|p| p.y).sum();
+        let before: Vec<f64> = field.particles.iter().map(|p| p.y).collect();
         field.tick();
-        let after: f64 = field.particles.iter().map(|p| p.y).sum();
-        assert!(after > before, "before: {before}, after: {after}");
+        // 大半は下方へ移動し、下端を抜けたものだけが上端へ再投入される。
+        let (mut down, mut reset) = (0, 0);
+        for (p, y0) in field.particles.iter().zip(&before) {
+            if p.y > *y0 {
+                down += 1;
+            } else if p.y < *y0 {
+                reset += 1;
+            }
+        }
+        assert!(down > reset, "down: {down}, reset: {reset}");
     }
 
     #[test]
@@ -540,6 +636,39 @@ mod tests {
             }
         }
         assert!(gone, "稲妻が消えない");
+    }
+
+    #[test]
+    fn 稲妻はギザギザで発生直後はフラッシュする() {
+        let mut field = ParticleField::new(
+            42,
+            WeatherCategory::Thunder,
+            Some(90),
+            &config(1.0, 1.0),
+            80,
+            24,
+        );
+        // 稲妻が発生するまで進める
+        let mut struck = false;
+        for _ in 0..500 {
+            field.tick();
+            let bolt_cells: Vec<_> = field
+                .glyphs()
+                .into_iter()
+                .filter(|(_, _, _, c)| *c == ParticleColor::Lightning)
+                .collect();
+            if !bolt_cells.is_empty() {
+                // 発生直後の数tickはフラッシュが立つ
+                assert!(field.flash_active(), "落雷直後はフラッシュするはず");
+                // 直線の棒ではなく、複数のx座標にまたがるギザギザである
+                let xs: std::collections::HashSet<u16> =
+                    bolt_cells.iter().map(|(x, _, _, _)| *x).collect();
+                assert!(xs.len() >= 2, "稲妻が直線的すぎる: xs={xs:?}");
+                struck = true;
+                break;
+            }
+        }
+        assert!(struck, "500tick以内に稲妻が発生しなかった");
     }
 
     #[test]

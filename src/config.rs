@@ -41,7 +41,7 @@ pub struct Config {
     pub default_location: Option<String>,
     /// レイアウトプリセット名(既定: "fullscreen")
     pub layout: String,
-    /// カラーテーマ名(既定: "dark")
+    /// カラーテーマ名(既定: "neon")
     pub theme: String,
     /// アニメーション設定
     pub animation: AnimationConfig,
@@ -52,7 +52,7 @@ impl Default for Config {
         Self {
             default_location: None,
             layout: "fullscreen".to_string(),
-            theme: "dark".to_string(),
+            theme: "neon".to_string(),
             animation: AnimationConfig::default(),
         }
     }
@@ -120,7 +120,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.default_location, None);
         assert_eq!(config.layout, "fullscreen");
-        assert_eq!(config.theme, "dark");
+        assert_eq!(config.theme, "neon");
         assert!(config.animation.enabled);
         assert_eq!(config.animation.speed, 1.0);
         assert_eq!(config.animation.density, 1.0);

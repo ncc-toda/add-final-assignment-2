@@ -66,8 +66,8 @@ default_location = "東京"
 # dashboard : 画面の大部分をパネルが占め、余白にアニメが見える
 layout = "fullscreen"
 
-# カラーテーマ: "dark"(既定) | "light" | "vivid"
-theme = "dark"
+# カラーテーマ: "neon"(既定・サイバー/ネオン) | "dark" | "light" | "vivid"
+theme = "neon"
 
 [animation]
 enabled = true   # 背景アニメーションのON/OFF
